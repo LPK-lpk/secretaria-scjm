@@ -83,6 +83,53 @@
   }
 
   /* ---------- controls ---------- */
+  .tabs{
+    display:flex;gap:8px;margin-bottom:16px;
+  }
+  .tab-btn{
+    background:var(--bg-elev);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    padding:9px 16px;
+    border-radius:8px;
+    font-size:13px;
+    cursor:pointer;
+    font-family:inherit;
+    transition:border-color .15s, color .15s, background .15s;
+  }
+  .tab-btn.active{
+    border-color:var(--gold);
+    color:var(--gold-soft);
+    background:var(--bg-elev-2);
+  }
+  .tab-btn .badge{
+    display:inline-block;
+    margin-left:6px;
+    padding:1px 7px;
+    border-radius:100px;
+    font-size:11px;
+    background:rgba(201,161,90,0.18);
+    color:var(--gold-soft);
+  }
+
+  .sr-item{
+    border:1px solid var(--line);
+    border-radius:12px;
+    background:var(--bg-elev);
+    padding:14px 16px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .sr-item .sr-meta{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:12px;color:var(--text-faint);
+  }
+  .sr-item .sr-who{color:var(--gold-soft);font-weight:600;}
+  .sr-item .sr-pergunta{
+    font-size:13.5px;color:var(--text);line-height:1.5;
+  }
+
   .controls{
     display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;
   }
@@ -215,6 +262,11 @@
     </div>
   </header>
 
+  <div class="tabs">
+    <button class="tab-btn active" id="tabConversas">💬 Conversas</button>
+    <button class="tab-btn" id="tabSemResposta">❓ Sem resposta <span class="badge" id="badgeSemResposta">0</span></button>
+  </div>
+
   <div class="controls">
     <input class="search" id="searchInput" type="text" placeholder="Filtrar por nome, número ou palavra na conversa…">
     <button class="ghost active" id="autoBtn">⏱ Auto: ligado</button>
@@ -249,8 +301,14 @@
   const refreshBtn = document.getElementById('refreshBtn');
 
   let ultimaLista = [];
+  let ultimaListaSemResposta = [];
   let autoOn = true;
   let timer = null;
+  let abaAtiva = 'conversas'; // 'conversas' | 'sem_resposta'
+
+  const tabConversas = document.getElementById('tabConversas');
+  const tabSemResposta = document.getElementById('tabSemResposta');
+  const badgeSemResposta = document.getElementById('badgeSemResposta');
 
   function escapeHtml(str){
     return String(str || '')
@@ -270,7 +328,7 @@
     return d.toLocaleDateString('pt-BR', {timeZone:'America/Sao_Paulo'}) + ' às ' + hora;
   }
 
-  function render(lista){
+  function renderConversas(lista){
     const termo = searchInput.value.trim().toLowerCase();
 
     const filtrada = !termo ? lista : lista.filter(c => {
@@ -282,7 +340,6 @@
 
     if(filtrada.length === 0){
       feedEl.innerHTML = '';
-      emptyEl.querySelector('.glyph') || null;
       emptyEl.innerHTML = '<span class="glyph">⛪</span>' + (termo ? 'Nenhuma conversa encontrada para esse filtro.' : 'Nenhuma conversa registrada ainda.');
       feedEl.appendChild(emptyEl);
       return;
@@ -308,15 +365,66 @@
     `).join('');
   }
 
+  function renderSemResposta(lista){
+    const termo = searchInput.value.trim().toLowerCase();
+
+    const filtrada = !termo ? lista : lista.filter(c => {
+      const alvo = ((c.Nome||'') + ' ' + (c.Numero||'') + ' ' + (c.Pergunta||'')).toLowerCase();
+      return alvo.includes(termo);
+    });
+
+    countPill.textContent = filtrada.length + (filtrada.length === 1 ? ' pergunta' : ' perguntas');
+
+    if(filtrada.length === 0){
+      feedEl.innerHTML = '';
+      emptyEl.innerHTML = '<span class="glyph">✅</span>' + (termo ? 'Nenhuma pergunta sem resposta encontrada para esse filtro.' : 'Nenhuma pergunta sem resposta registrada — base de dados completa!');
+      feedEl.appendChild(emptyEl);
+      return;
+    }
+
+    feedEl.innerHTML = filtrada.map(c => `
+      <div class="sr-item">
+        <div class="sr-meta">
+          <div><span class="sr-who">${escapeHtml(c.Nome || 'Fiel')}</span> ${escapeHtml(c.Numero || '')}</div>
+          <div>${formatarQuando(c.Timestamp)}</div>
+        </div>
+        <div class="sr-pergunta">${escapeHtml(c.Pergunta)}</div>
+      </div>
+    `).join('');
+  }
+
+  function render(){
+    if(abaAtiva === 'conversas'){
+      renderConversas(ultimaLista);
+    } else {
+      renderSemResposta(ultimaListaSemResposta);
+    }
+  }
+
+  function trocarAba(aba){
+    abaAtiva = aba;
+    tabConversas.classList.toggle('active', aba === 'conversas');
+    tabSemResposta.classList.toggle('active', aba === 'sem_resposta');
+    searchInput.placeholder = aba === 'conversas'
+      ? 'Filtrar por nome, número ou palavra na conversa…'
+      : 'Filtrar por nome, número ou palavra na pergunta…';
+    render();
+  }
+
+  tabConversas.addEventListener('click', () => trocarAba('conversas'));
+  tabSemResposta.addEventListener('click', () => trocarAba('sem_resposta'));
+
   async function buscar(){
     try{
       const resp = await fetch(WEBHOOK_URL, { method:'GET' });
       if(!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
       ultimaLista = data.conversas || data.records || [];
+      ultimaListaSemResposta = data.sem_resposta || [];
+      badgeSemResposta.textContent = ultimaListaSemResposta.length;
       statusDot.className = 'dot live';
       statusText.textContent = 'ao vivo · ' + new Date().toLocaleTimeString('pt-BR', {timeZone:'America/Sao_Paulo'});
-      render(ultimaLista);
+      render();
     }catch(err){
       statusDot.className = 'dot off';
       statusText.textContent = 'sem conexão';
@@ -339,7 +447,7 @@
   });
 
   refreshBtn.addEventListener('click', buscar);
-  searchInput.addEventListener('input', () => render(ultimaLista));
+  searchInput.addEventListener('input', render);
 
   buscar();
   agendar();
